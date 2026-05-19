@@ -174,12 +174,12 @@ def query_sessions(*, repo: Optional[str], limit: int, days: int) -> list[dict]:
         df = f"-{days} days"
         if repo and repo != "all":
             rows = conn.execute(
-                "SELECT * FROM zed_sessions WHERE repository=? AND updated_at >= datetime('now',?) ORDER BY updated_at DESC LIMIT ?",
+                "SELECT * FROM zed_sessions WHERE repository=? AND turns_count >= 2 AND updated_at >= datetime('now',?) ORDER BY updated_at DESC LIMIT ?",
                 (repo, df, limit),
             ).fetchall()
         else:
             rows = conn.execute(
-                "SELECT * FROM zed_sessions WHERE updated_at >= datetime('now',?) ORDER BY updated_at DESC LIMIT ?",
+                "SELECT * FROM zed_sessions WHERE turns_count >= 2 AND updated_at >= datetime('now',?) ORDER BY updated_at DESC LIMIT ?",
                 (df, limit),
             ).fetchall()
         return [{**dict(r), "_trust_level": _TRUST_LEVEL} for r in rows]
