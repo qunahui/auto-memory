@@ -28,17 +28,7 @@ TELEMETRY_PATH = os.environ.get(
 VSCODE_WORKSPACE_STORAGE = os.environ.get("SESSION_RECALL_VSCODE_STORAGE")
 JETBRAINS_SESSIONS_ROOT = os.environ.get("SESSION_RECALL_JETBRAINS_ROOT")
 NEOVIM_SESSIONS_ROOT = os.environ.get("SESSION_RECALL_NEOVIM_ROOT")
-ZED_THREADS_DB = os.environ.get(
-    "SESSION_RECALL_ZED_THREADS_DB",
-    str(
-        Path.home()
-        / "Library"
-        / "Application Support"
-        / "Zed"
-        / "threads"
-        / "threads.db"
-    ),
-)
+
 
 RETRY_DELAYS_MS = [50, 150, 450]
 MAX_RETRIES = len(RETRY_DELAYS_MS)

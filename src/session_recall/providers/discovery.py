@@ -8,7 +8,6 @@ from ..config import (
     JETBRAINS_SESSIONS_ROOT,
     NEOVIM_SESSIONS_ROOT,
     VSCODE_WORKSPACE_STORAGE,
-    ZED_THREADS_DB,
 )
 from .base import StorageProvider
 from .copilot_cli import CopilotCliProvider
@@ -19,7 +18,7 @@ def discover_providers(db_path: str) -> list[StorageProvider]:
     """Build the provider list and keep only available ones."""
     candidates: list[StorageProvider] = [
         CopilotCliProvider(db_path=db_path, state_root=CLI_SESSION_STATE_ROOT),
-        ZedProvider(db_path=ZED_THREADS_DB),
+        ZedProvider(),
     ]
     if ENABLE_FILE_BACKENDS:
         from .file import JetBrainsProvider, NeovimProvider, VSCodeProvider
