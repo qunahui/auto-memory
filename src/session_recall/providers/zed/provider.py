@@ -13,6 +13,17 @@ _TRUST_LEVEL = "zed_threads_db"
 
 
 class ZedProvider(StorageProvider):
+    @staticmethod
+    def _repo_match(scope: str | None, candidate: str | None) -> bool:
+        if not scope or scope == "all":
+            return True
+        cand = (candidate or "").strip()
+        if scope.startswith("local:") and cand.startswith("local:"):
+            s = scope[6:]
+            c = cand[6:]
+            return c.startswith(s) or s.startswith(c)
+        return cand == scope
+
     provider_id = "zed"
     provider_name = "Zed Editor"
 
@@ -70,7 +81,9 @@ class ZedProvider(StorageProvider):
         if not self._has_db():
             return []
         self._ensure_index()
-        rows = query_sessions(repo=repo, limit=limit, days=days or 30)
+        sql_repo = None if (repo and repo.startswith("local:")) else repo
+        rows = query_sessions(repo=sql_repo, limit=limit * 5, days=days or 30)
+        rows = [r for r in rows if self._repo_match(repo, r.get("repository"))][:limit]
         return [
             {
                 "provider": self.provider_id,
@@ -95,7 +108,9 @@ class ZedProvider(StorageProvider):
         if not self._has_db():
             return []
         self._ensure_index()
-        rows = query_files(repo=repo, limit=limit, days=days or 30)
+        sql_repo = None if (repo and repo.startswith("local:")) else repo
+        rows = query_files(repo=sql_repo, limit=limit * 8, days=days or 30)
+        rows = [r for r in rows if self._repo_match(repo, r.get("repository"))][:limit]
         return [
             {
                 "provider": self.provider_id,
@@ -120,7 +135,9 @@ class ZedProvider(StorageProvider):
         if not self._has_db():
             return []
         self._ensure_index()
-        rows = query_search(query, repo=repo, limit=limit, days=days or 30)
+        sql_repo = None if (repo and repo.startswith("local:")) else repo
+        rows = query_search(query, repo=sql_repo, limit=limit * 8, days=days or 30)
+        rows = [r for r in rows if self._repo_match(repo, r.get("repository"))][:limit]
         out = []
         for r in rows:
             content = (

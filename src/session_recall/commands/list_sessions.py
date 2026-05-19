@@ -1,6 +1,7 @@
 """List recent sessions for the current (or specified) repository."""
 
 import sys
+from pathlib import Path
 
 from ..config import DB_PATH
 from ..providers.discovery import get_active_providers
@@ -11,7 +12,13 @@ from ._lookback import resolve_days
 
 def run(args) -> int:
     """Execute the list subcommand. Returns exit code."""
-    repo = args.repo or detect_repo()
+    selected_provider = getattr(args, "provider", "zed")
+    if args.repo:
+        repo = args.repo
+    elif selected_provider in {"zed", "all"}:
+        repo = f"local:{Path.cwd().resolve()}"
+    else:
+        repo = detect_repo()
     limit = args.limit or 10
     user_days = getattr(args, "days", None)
     try:

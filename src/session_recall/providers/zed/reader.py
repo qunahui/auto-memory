@@ -6,8 +6,6 @@ import json
 from pathlib import Path
 from typing import Any
 
-from ...util.detect_repo import detect_repo_for_cwd
-
 
 def _extract_text_blocks(content: Any) -> str:
     parts: list[str] = []
@@ -125,9 +123,7 @@ def resolve_repository(row: dict[str, Any]) -> str:
     folder_paths = row.get("folder_paths")
     if isinstance(folder_paths, str) and folder_paths.strip():
         first = folder_paths.split(",")[0].strip()
-        detected = detect_repo_for_cwd(first)
-        if detected:
-            return detected
+        # Path-first identity for Zed scope matching.
         return f"local:{Path(first).expanduser()}"
     return "local:zed"
 

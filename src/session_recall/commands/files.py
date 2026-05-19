@@ -1,6 +1,7 @@
 """List recently touched files with session attribution."""
 
 import sys
+from pathlib import Path
 
 from ..config import DB_PATH
 from ..providers.discovery import get_active_providers
@@ -25,7 +26,13 @@ def run(args) -> int:
                 print(f"   - {p}", file=sys.stderr)
             return 2
 
-    repo = getattr(args, "repo", None) or detect_repo()
+    selected_provider = getattr(args, "provider", "zed")
+    if getattr(args, "repo", None):
+        repo = getattr(args, "repo", None)
+    elif selected_provider in {"zed", "all"}:
+        repo = f"local:{Path.cwd().resolve()}"
+    else:
+        repo = detect_repo()
     limit = getattr(args, "limit", None) or 10
     days = getattr(args, "days", None)
     files = []
