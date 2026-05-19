@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from ...db.connect import connect_ro
+from ...util.detect_repo import detect_repo_for_cwd
 from ..base import StorageProvider
 
 
@@ -81,10 +82,21 @@ class ZedProvider(StorageProvider):
 
     @staticmethod
     def _repo_from_row(row: dict[str, Any]) -> str:
-        for key in ("repository", "repo", "project_path", "workspace", "cwd", "path"):
+        for key in ("repository", "repo"):
             v = row.get(key)
             if isinstance(v, str) and v.strip():
                 return v.strip()
+
+        for key in ("project_path", "workspace", "cwd", "path"):
+            v = row.get(key)
+            if not isinstance(v, str) or not v.strip():
+                continue
+            path_val = v.strip()
+            detected = detect_repo_for_cwd(path_val)
+            if detected:
+                return detected
+            return f"local:{Path(path_val).expanduser()}"
+
         return "local:zed"
 
     def _list_threads(

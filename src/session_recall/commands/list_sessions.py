@@ -11,17 +11,12 @@ from ._lookback import resolve_days
 
 def run(args) -> int:
     """Execute the list subcommand. Returns exit code."""
-    selected_provider = getattr(args, "provider", "zed")
-    repo = (
-        args.repo
-        if args.repo is not None
-        else ("all" if selected_provider == "zed" else detect_repo())
-    )
+    repo = args.repo or detect_repo()
     limit = args.limit or 10
     user_days = getattr(args, "days", None)
     try:
         providers = get_active_providers(
-            getattr(args, "provider", "cli"), db_path=DB_PATH
+            getattr(args, "provider", "zed"), db_path=DB_PATH
         )
     except ValueError as e:
         print(f"error: {e}", file=sys.stderr)

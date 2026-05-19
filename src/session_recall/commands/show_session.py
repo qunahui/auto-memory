@@ -13,7 +13,7 @@ _SID_RE = re.compile(r"^[0-9a-fA-F-]{4,}$")
 def run(args) -> int:
     try:
         providers = get_active_providers(
-            getattr(args, "provider", "cli"), db_path=DB_PATH
+            getattr(args, "provider", "zed"), db_path=DB_PATH
         )
     except ValueError as e:
         print(f"error: {e}", file=sys.stderr)
@@ -28,7 +28,7 @@ def run(args) -> int:
             return 2
 
     sid = args.session_id.strip()
-    selected_provider = getattr(args, "provider", "cli")
+    selected_provider = getattr(args, "provider", "zed")
     cli_like_id = selected_provider in {"cli", "all"} and ":" not in sid
     if cli_like_id and (not _SID_RE.match(sid) or not sid.replace("-", "")):
         print(

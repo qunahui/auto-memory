@@ -36,19 +36,13 @@ def sanitize_fts5_query(raw: str) -> str | None:
 
 def run(args) -> int:
     raw_query = args.query
-    selected_provider = getattr(args, "provider", "zed")
-    raw_repo = getattr(args, "repo", None)
-    repo = (
-        raw_repo
-        if raw_repo is not None
-        else ("all" if selected_provider == "zed" else detect_repo())
-    )
+    repo = getattr(args, "repo", None) or detect_repo()
     limit = getattr(args, "limit", None) or 5
     user_days = getattr(args, "days", None)
 
     try:
         providers = get_active_providers(
-            getattr(args, "provider", "cli"), db_path=DB_PATH
+            getattr(args, "provider", "zed"), db_path=DB_PATH
         )
     except ValueError as e:
         print(f"error: {e}", file=sys.stderr)
