@@ -18,7 +18,9 @@ classifiers = [
     "Environment :: Console",
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
-dependencies = []
+dependencies = [
+    "zstandard>=0.22",
+]
 
 [project.scripts]
 session-recall = "session_recall.__main__:main"

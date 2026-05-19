@@ -49,14 +49,14 @@ class ZedProvider(StorageProvider):
 
     def is_available(self) -> bool:
         tables = self._tables()
-        return self._has_db() and ("threads" in tables or "messages" in tables)
+        return self._has_db() and "threads" in tables
 
     def schema_problems(self) -> list[str]:
         if not self._has_db():
             return []
         tables = self._tables()
-        if "threads" not in tables and "messages" not in tables:
-            return ["zed threads.db missing expected tables (threads/messages)"]
+        if "threads" not in tables:
+            return ["zed threads.db missing expected table: threads"]
         return []
 
     @staticmethod
@@ -81,11 +81,161 @@ class ZedProvider(StorageProvider):
         return str(v)
 
     @staticmethod
+    def _extract_text_from_content_blocks(content: Any) -> str:
+        parts: list[str] = []
+
+        def walk(node: Any) -> None:
+            if isinstance(node, str):
+                s = node.strip()
+                if s:
+                    parts.append(s)
+                return
+            if isinstance(node, list):
+                for item in node:
+                    walk(item)
+                return
+            if not isinstance(node, dict):
+                return
+
+            # Common Zed blocks: {"Text": "..."}
+            txt = node.get("Text")
+            if isinstance(txt, str) and txt.strip():
+                parts.append(txt.strip())
+
+            for key in (
+                "content",
+                "text",
+                "body",
+                "message",
+                "input",
+                "raw_input",
+                "tool_results",
+            ):
+                if key in node:
+                    walk(node[key])
+
+            for value in node.values():
+                if isinstance(value, (dict, list)):
+                    walk(value)
+
+        walk(content)
+        return "\n".join(parts).strip()
+
+    @staticmethod
+    def _extract_paths_from_obj(obj: Any) -> list[str]:
+        paths: list[str] = []
+
+        def walk(node: Any) -> None:
+            if isinstance(node, list):
+                for item in node:
+                    walk(item)
+                return
+            if not isinstance(node, dict):
+                return
+
+            for k in (
+                "path",
+                "file_path",
+                "source_path",
+                "destination_path",
+                "root",
+                "cwd",
+            ):
+                v = node.get(k)
+                if isinstance(v, str) and v.strip() and "/" in v:
+                    paths.append(v.strip())
+
+            for v in node.values():
+                if isinstance(v, (dict, list)):
+                    walk(v)
+
+        walk(obj)
+        return paths
+
+    @staticmethod
+    def _decode_payload(data_type: str, data_blob: Any) -> dict[str, Any] | None:
+        if not isinstance(data_blob, (bytes, bytearray)):
+            return None
+
+        if data_type == "zstd":
+            try:
+                import zstandard as zstd  # type: ignore
+
+                raw = zstd.ZstdDecompressor().decompress(
+                    data_blob, max_output_size=50_000_000
+                )
+                obj = json.loads(raw)
+                if isinstance(obj, dict):
+                    return obj
+            except Exception:
+                return None
+            return None
+
+        # Optional plain JSON fallback
+        try:
+            obj = json.loads(data_blob)
+            if isinstance(obj, dict):
+                return obj
+        except Exception:
+            return None
+        return None
+
+    @staticmethod
+    def _parse_messages_from_payload(payload: dict[str, Any]) -> list[dict[str, Any]]:
+        raw = payload.get("messages")
+        if not isinstance(raw, list):
+            return []
+
+        out: list[dict[str, Any]] = []
+        for idx, item in enumerate(raw):
+            if not isinstance(item, dict):
+                continue
+
+            if "User" in item and isinstance(item["User"], dict):
+                u = item["User"]
+                out.append(
+                    {
+                        "idx": idx,
+                        "role": "user",
+                        "text": ZedProvider._extract_text_from_content_blocks(
+                            u.get("content")
+                        ),
+                        "timestamp": str(u.get("timestamp") or ""),
+                        "raw": item,
+                    }
+                )
+
+            elif "Agent" in item and isinstance(item["Agent"], dict):
+                a = item["Agent"]
+                out.append(
+                    {
+                        "idx": idx,
+                        "role": "assistant",
+                        "text": ZedProvider._extract_text_from_content_blocks(
+                            a.get("content")
+                        ),
+                        "timestamp": str(a.get("timestamp") or ""),
+                        "raw": item,
+                    }
+                )
+
+        return out
+
+    @staticmethod
     def _repo_from_row(row: dict[str, Any]) -> str:
         for key in ("repository", "repo"):
             v = row.get(key)
             if isinstance(v, str) and v.strip():
                 return v.strip()
+
+        # Zed-native hints
+        folder_paths = row.get("folder_paths")
+        if isinstance(folder_paths, str) and folder_paths.strip():
+            first = folder_paths.split(",")[0].strip()
+            detected = detect_repo_for_cwd(first)
+            if detected:
+                return detected
+            return f"local:{Path(first).expanduser()}"
 
         for key in ("project_path", "workspace", "cwd", "path"):
             v = row.get(key)
@@ -111,17 +261,24 @@ class ZedProvider(StorageProvider):
         updated_col = self._pick(
             cols, "updated_at", "updatedat", "updated", "last_updated_at"
         )
+        data_type_col = self._pick(cols, "data_type")
+        data_col = self._pick(cols, "data")
 
         selected = [id_col]
-        if title_col:
-            selected.append(title_col)
-        if created_col:
-            selected.append(created_col)
-        if updated_col and updated_col not in selected:
-            selected.append(updated_col)
+        for c in (title_col, created_col, updated_col, data_type_col, data_col):
+            if c and c not in selected:
+                selected.append(c)
 
         # Optional context columns used for repository inference.
-        for c in ("repository", "repo", "project_path", "workspace", "cwd", "path"):
+        for c in (
+            "repository",
+            "repo",
+            "project_path",
+            "workspace",
+            "cwd",
+            "path",
+            "folder_paths",
+        ):
             if c in cols and c not in selected:
                 selected.append(c)
 
@@ -143,7 +300,27 @@ class ZedProvider(StorageProvider):
             sid = str(r[id_col])
             created_at = self._val(r, created_col)
             updated_at = self._val(r, updated_col, created_at)
-            summary = self._val(r, title_col, "(untitled)")
+            summary = self._val(r, title_col, "").strip()
+            payload = self._decode_payload(
+                self._val(r, data_type_col), r[data_col] if data_col else None
+            )
+            messages = self._parse_messages_from_payload(payload or {})
+            first_user = next(
+                (
+                    m["text"]
+                    for m in messages
+                    if m.get("role") == "user" and str(m.get("text") or "").strip()
+                ),
+                "",
+            )
+
+            if not summary:
+                summary = (
+                    (first_user[:120] + "...") if len(first_user) > 120 else first_user
+                )
+                if not summary:
+                    summary = "(untitled)"
+
             out.append(
                 {
                     "provider": self.provider_id,
@@ -157,62 +334,13 @@ class ZedProvider(StorageProvider):
                     else None,
                     "created_at": created_at or updated_at,
                     "updated_at": updated_at or created_at,
-                    "turns_count": 0,
+                    "turns_count": len(messages),
                     "files_count": 0,
                     "_trust_level": "trusted_first_party",
+                    "_zed_messages": messages,
                 }
             )
         return out
-
-    def _message_rows_for_thread(self, conn: Any, thread_id: str) -> list[Any]:
-        try:
-            cols = self._colset(conn, "messages")
-        except Exception:
-            return []
-        tid_col = self._pick(
-            cols, "thread_id", "threadid", "conversation_id", "session_id"
-        )
-        if not tid_col:
-            return []
-        order_col = (
-            self._pick(cols, "created_at", "createdat", "timestamp", "id") or "id"
-        )
-        return conn.execute(
-            f"SELECT * FROM messages WHERE {tid_col} = ? ORDER BY {order_col} ASC",
-            (thread_id,),
-        ).fetchall()
-
-    @staticmethod
-    def _extract_text(msg_row: Any) -> tuple[str, str]:
-        d = {k.lower(): msg_row[k] for k in msg_row.keys()}
-
-        role = "assistant"
-        for rk in ("role", "sender_role", "author_role", "kind", "type"):
-            rv = d.get(rk)
-            if isinstance(rv, str) and rv.strip():
-                role = rv.strip().lower()
-                break
-
-        for ck in ("content", "text", "body", "message"):
-            cv = d.get(ck)
-            if isinstance(cv, str) and cv:
-                s = cv.strip()
-                if s.startswith("{") or s.startswith("["):
-                    try:
-                        obj = json.loads(s)
-                        if isinstance(obj, dict):
-                            for k in ("text", "content", "message"):
-                                v = obj.get(k)
-                                if isinstance(v, str):
-                                    return role, v
-                        elif isinstance(obj, list):
-                            parts = [p for p in obj if isinstance(p, str)]
-                            if parts:
-                                return role, "\n".join(parts)
-                    except Exception:
-                        pass
-                return role, s
-        return role, ""
 
     def list_sessions(
         self, repo: str | None, limit: int, days: int | None
@@ -222,17 +350,14 @@ class ZedProvider(StorageProvider):
         conn = connect_ro(self.db_path)
         try:
             sessions = self._list_threads(conn, limit=max(limit * 3, limit), days=days)
-            if not sessions:
-                return []
-            for s in sessions:
-                msgs = self._message_rows_for_thread(conn, s["id_full"])
-                s["turns_count"] = len(msgs)
             if repo and repo != "all":
                 sessions = [s for s in sessions if s.get("repository") == repo]
             sessions.sort(
                 key=lambda s: s.get("updated_at") or s.get("created_at") or "",
                 reverse=True,
             )
+            for s in sessions:
+                s.pop("_zed_messages", None)
             return sessions[:limit]
         finally:
             conn.close()
@@ -240,7 +365,47 @@ class ZedProvider(StorageProvider):
     def recent_files(
         self, repo: str | None, limit: int, days: int | None
     ) -> list[dict[str, Any]]:
-        return []
+        if not self._has_db():
+            return []
+        conn = connect_ro(self.db_path)
+        try:
+            sessions = self._list_threads(conn, limit=300, days=days)
+            if repo and repo != "all":
+                sessions = [s for s in sessions if s.get("repository") == repo]
+
+            out: list[dict[str, Any]] = []
+            seen: set[tuple[str, str]] = set()
+            for s in sessions:
+                for m in s.get("_zed_messages", []):
+                    raw = m.get("raw")
+                    if not isinstance(raw, dict):
+                        continue
+                    for p in self._extract_paths_from_obj(raw):
+                        key = (s["id_full"], p)
+                        if key in seen:
+                            continue
+                        seen.add(key)
+                        out.append(
+                            {
+                                "provider": self.provider_id,
+                                "file_path": p,
+                                "tool_name": "zed_tool",
+                                "date": (s.get("updated_at") or "")[:10],
+                                "session_id": s.get("id_short"),
+                                "session_summary": s.get("summary"),
+                                "_trust_level": "trusted_first_party",
+                            }
+                        )
+                        if len(out) >= limit:
+                            for sess in sessions:
+                                sess.pop("_zed_messages", None)
+                            return out
+
+            for sess in sessions:
+                sess.pop("_zed_messages", None)
+            return out
+        finally:
+            conn.close()
 
     def list_checkpoints(
         self, repo: str | None, limit: int, days: int | None
@@ -256,13 +421,13 @@ class ZedProvider(StorageProvider):
 
         conn = connect_ro(self.db_path)
         try:
-            sessions = self._list_threads(conn, limit=200, days=days)
+            sessions = self._list_threads(conn, limit=300, days=days)
             if repo and repo != "all":
                 sessions = [s for s in sessions if s.get("repository") == repo]
             hits: list[dict[str, Any]] = []
             for s in sessions:
-                for r in self._message_rows_for_thread(conn, s["id_full"]):
-                    role, text = self._extract_text(r)
+                for m in s.get("_zed_messages", []):
+                    text = str(m.get("text") or "")
                     if q not in text.lower():
                         continue
                     excerpt = text[:250] + ("..." if len(text) > 250 else "")
@@ -271,7 +436,7 @@ class ZedProvider(StorageProvider):
                             "provider": self.provider_id,
                             "session_id": s["id_short"],
                             "session_id_full": s["id_full"],
-                            "source_type": f"message:{role}",
+                            "source_type": f"message:{m.get('role') or 'unknown'}",
                             "summary": s.get("summary", ""),
                             "repository": s.get("repository", "local:zed"),
                             "date": s.get("date"),
@@ -280,7 +445,11 @@ class ZedProvider(StorageProvider):
                         }
                     )
                     if len(hits) >= limit:
+                        for sess in sessions:
+                            sess.pop("_zed_messages", None)
                         return hits
+            for sess in sessions:
+                sess.pop("_zed_messages", None)
             return hits
         finally:
             conn.close()
@@ -305,29 +474,44 @@ class ZedProvider(StorageProvider):
             if not target:
                 return None
 
-            rows = self._message_rows_for_thread(conn, target["id_full"])
+            rows = list(target.get("_zed_messages", []))
             if turns is not None:
                 rows = rows[:turns]
             mx = 99999 if full else 500
             payload = []
             for i, r in enumerate(rows):
-                role, text = self._extract_text(r)
-                ts = ""
-                row_lc = {k.lower(): r[k] for k in r.keys()}
-                for tk in ("created_at", "createdat", "timestamp", "time"):
-                    if tk in row_lc and row_lc[tk] is not None:
-                        ts = str(row_lc[tk])
-                        break
+                role = str(r.get("role") or "assistant")
+                text = str(r.get("text") or "")[:mx]
+                ts = str(r.get("timestamp") or "")
                 if role.startswith("user"):
                     payload.append(
-                        {"idx": i, "user": text[:mx], "assistant": "", "timestamp": ts}
+                        {"idx": i, "user": text, "assistant": "", "timestamp": ts}
                     )
                 else:
                     payload.append(
-                        {"idx": i, "user": "", "assistant": text[:mx], "timestamp": ts}
+                        {"idx": i, "user": "", "assistant": text, "timestamp": ts}
                     )
 
-            return {
+            # Best-effort extracted files from tool payloads
+            files_payload: list[dict[str, Any]] = []
+            seen: set[str] = set()
+            for r in rows:
+                raw = r.get("raw")
+                if not isinstance(raw, dict):
+                    continue
+                for p in self._extract_paths_from_obj(raw):
+                    if p in seen:
+                        continue
+                    seen.add(p)
+                    files_payload.append(
+                        {
+                            "file_path": p,
+                            "tool_name": "zed_tool",
+                            "turn_index": int(r.get("idx") or 0),
+                        }
+                    )
+
+            result = {
                 "provider": self.provider_id,
                 "id": target["id_full"],
                 "repository": target.get("repository", "local:zed"),
@@ -336,10 +520,12 @@ class ZedProvider(StorageProvider):
                 "created_at": target.get("created_at"),
                 "turns_count": len(payload),
                 "turns": payload,
-                "files": [],
+                "files": files_payload,
                 "refs": [],
                 "checkpoints": [],
                 "_trust_level": "trusted_first_party",
             }
+            target.pop("_zed_messages", None)
+            return result
         finally:
             conn.close()
