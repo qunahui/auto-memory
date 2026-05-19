@@ -1,0 +1,97 @@
+# === Python ===
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+dist/
+build/
+*.whl
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+.tox/
+.nox/
+.python-version
+.pypirc
+
+# === Secrets & Environment ===
+.env
+.env.*
+.env.local
+.env.production
+.envrc
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+*.jks
+*.keystore
+secrets/
+credentials/
+service-account*.json
+
+# === AI Agent / Copilot / Claude ===
+CLAUDE.md
+TASKS.md
+.claude/
+.copilot/
+.agent-memory/
+.cursorrules
+.cursor/
+.aider*
+
+# === PII & Sensitive Data ===
+*.csv
+*.tsv
+*.xlsx
+*.xls
+*.db
+*.sqlite
+*.sqlite3
+*.sqlite-wal
+*.sqlite-shm
+*.sql.gz
+*.dump
+
+# === OS Files ===
+.DS_Store
+Thumbs.db
+Desktop.ini
+._*
+
+# === IDE / Editor ===
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.project
+.settings/
+
+# === Project-specific ===
+.session-recall-stats.json
+.perf/
+uv.lock
+plans/
+
+# === Logs & Temp ===
+*.log
+logs/
+tmp/
+temp/
+*.bak
+*.tmp
+
+
+# Internal working docs
+polish/
+docs/
+
+# Local verification scripts/output (claude_code provider)
+src/session_recall/providers/claude_code/verifications/

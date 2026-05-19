@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "auto-memory"
+version = "0.4.0"
+description = "Your AI coding agent never forgets — progressive session recall for GitHub Copilot CLI"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [{name = "Desi Villanueva", email = "217994822+dezgit2025@users.noreply.github.com"}]
+readme = "README.md"
+keywords = ["session", "recall", "context", "memory", "cli", "copilot"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Environment :: Console",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = []
+
+[project.scripts]
+session-recall = "session_recall.__main__:main"
+session-recall-cc = "session_recall.providers.claude_code.cli:main"
+session-recall-claude = "session_recall.providers.claude_code.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/dezgit2025/auto-memory"
+Repository = "https://github.com/dezgit2025/auto-memory"
+Issues = "https://github.com/dezgit2025/auto-memory/issues"
+
+[project.optional-dependencies]
+claude = []
+dev = ["pytest>=8", "ruff>=0.6"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
